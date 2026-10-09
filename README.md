@@ -262,28 +262,39 @@ Pull articles or events from saved [Topic Pages](https://newsapi.ai) on NewsAPI.
 
 ## Claude Code plugin
 
-The repository is a Claude Code plugin: it bundles the hosted MCP server and the
-`/news` research skill, so one install gives Claude Code both.
+The repository is a Claude Code plugin: it bundles the hosted MCP server and six
+research skills, so one install gives Claude Code both.
 
 ```bash
 claude plugin marketplace add EventRegistry/newsapi-mcp
 claude plugin install newsapi@newsapi-mcp
 ```
 
-Ask a news question or run `/news "What's happening with AI regulation?"`; Claude Code
-prompts you to log in with your Event Registry account the first time (or run `/mcp`
-to log in up front). The plugin's tools are named `mcp__plugin_newsapi_newsapi__<tool>`
-in permission rules.
+Ask a news question or run a skill; Claude Code prompts you to log in with your Event
+Registry account the first time (or run `/mcp` to log in up front). The plugin's tools
+are named `mcp__plugin_newsapi_newsapi__<tool>` in permission rules.
 
-### News research skill
+### Research skills
 
-The `skills/news/` directory holds the `/news` skill for [Claude Code](https://code.claude.com/docs/en/skills)
-(CLI and Desktop) that orchestrates multi-step research workflows on top of the MCP tools.
-It automates the suggest → scan → triage → retrieve pattern and formats findings into structured reports.
+| Skill | Use for |
+|-------|---------|
+| `/newsapi:news` | Event overviews, article deep dives, happenings (mentions), coverage numbers, breaking news, topic pages, quick lookups, multi-angle research reports |
+| `/newsapi:due-diligence` | Adverse media screening, ESG controversies, company profiles, key people |
+| `/newsapi:risk` | Supply chain disruptions, country and regional geopolitical risk |
+| `/newsapi:markets` | Economic indicators and sectors, company and asset analysis |
+| `/newsapi:political` | Policy, legislation, elections, diplomacy |
+| `/newsapi:source-analysis` | Outlet comparison, sentiment, coverage landscape |
 
-To use the skill without the plugin, copy `skills/news/` into your project's `.claude/skills/`
-directory and change its `allowed-tools` to the names of your own MCP server (for a server
-added as `newsapi`, `mcp__newsapi__<tool>`).
+Each skill is a `skills/<name>/SKILL.md` with its own tool sequences and report
+templates. `skills/_reporting.md` holds what they share: the suggest → scan → triage →
+retrieve workflow, the three search kinds, aggregates, the `query` grammar for complex
+filters, the citation format, the report skeleton and the usage footer. Claude Code
+also picks the right skill from the question without the slash command.
+
+To use the skills without the plugin, copy `skills/` into your project's `.claude/skills/`
+directory, replace `${CLAUDE_PLUGIN_ROOT}/skills/_reporting.md` in each `SKILL.md` with
+the path you copied it to, and change `allowed-tools` to the names of your own MCP
+server (for a server added as `newsapi`, `mcp__newsapi__<tool>`).
 
 ## Links
 

@@ -2,7 +2,7 @@
   "name": "newsapi",
   "displayName": "NewsAPI.ai",
   "version": "1.3.1",
-  "description": "Real-time news intelligence from NewsAPI.ai: the hosted MCP server plus the /news research skill",
+  "description": "Real-time news intelligence from NewsAPI.ai: the hosted MCP server plus research skills for news, due diligence, risk, markets, politics and source analysis",
   "author": {
     "name": "Erik Novak"
   },

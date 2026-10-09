@@ -1,323 +1,117 @@
 ---
 name: news
-description: Research news topics using NewsAPI tools. Use when the user asks about current events, news analysis, source comparison, topic monitoring, due diligence, company intelligence, supply chain risk, or geopolitical risk.
+description: General news research with NewsAPI tools. Use when the user asks what is happening with a topic, what is breaking or in the news right now, a quick fact ("did X happen", "who won"), full article coverage, which companies announced layoffs, recalls, acquisitions or other happenings, a topic page update, a count or trend of coverage, or a multi-angle research report. For due diligence, risk, markets, politics or source analysis use the sibling skills.
 user-invocable: true
 allowed-tools: mcp__plugin_newsapi_newsapi__suggest, mcp__plugin_newsapi_newsapi__search, mcp__plugin_newsapi_newsapi__get_breaking_events, mcp__plugin_newsapi_newsapi__get_article_details, mcp__plugin_newsapi_newsapi__get_event_details, mcp__plugin_newsapi_newsapi__get_topic_page_articles, mcp__plugin_newsapi_newsapi__get_topic_page_events, mcp__plugin_newsapi_newsapi__get_api_usage
 ---
 
-# News Research Skill
+# News research
 
-Research news topics end-to-end using the NewsAPI MCP server. This skill orchestrates the right tool sequence for different question types and formats findings for export.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/_reporting.md` first: it holds the search workflow, kinds, aggregates, filters, citation rules, report skeleton and usage footer every report must follow.
 
 ## Usage
 
-- `/news "What's happening with AI regulation?"` — run a full research workflow
-- `/news` — interactive mode, asks for the research question
+- `/newsapi:news "What's happening with AI regulation?"`
+- `/newsapi:news` — asks for the research question
 
-## Rules
+## Pick a pattern
 
-1. **Sequential requests only** — never fire multiple NewsAPI calls in parallel (max 5 concurrent allowed by API, but sequential is safer and required by server instructions)
-2. **Deduplicate by default** — use `isDuplicateFilter: "skipDuplicates"` in all scan steps
-3. **Track usage** — read the "Tokens used" footer from every response and report totals at the end
+| Question | Pattern |
+|----------|---------|
+| "What's happening with X?" | Event overview |
+| Needs full text, quotes, detailed coverage | Article deep dive |
+| Names a kind of happening ("layoffs in fintech", "recalls by Toyota") | Happenings |
+| "How much / who / where / since when" | Numbers |
+| Multi-angle question across stakeholders | Research report |
+| "What's breaking right now?" | Breaking events |
+| Topic page URI given | Topic page |
+| Simple factual question, few results | Quick lookup |
 
-## Workflow: suggest → scan → triage → retrieve
+## Event overview
 
-### Step 1: Suggest — resolve names to URIs
-`suggest({type: "concepts", prefix: "Tesla"})` → get conceptUri
-Always resolve entity names before searching. Keyword search is a fallback.
+1. `suggest({type: "concepts", prefix: "<topic>"})`
+2. `search({kind: "events", conceptUri, count: 50, sortBy: "date"})`
+3. Triage events by title and summary
+4. `get_event_details({eventUri: [...], includeFields: "concepts,categories"})`
+5. For the 3-5 key events fetch citable article rows (5 tokens each): `get_event_details({eventUri: "<uri>", resultType: "articles", articlesCount: 10})`
+6. Report with the **findings** template
 
-### Step 2: Scan — retrieve titles only
-`search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates"})`
-Fetch up to 100 articles with NO bodies — returns only titles, dates, sources, and URIs. Very token-efficient. Use `isDuplicateFilter: "skipDuplicates"` to remove wire syndication noise.
+## Article deep dive
 
-### Step 3: Triage — assess relevance
-Read the titles from step 2. Select the articles relevant to the user's question by their URIs. If too few relevant results, paginate (`articlesPage: 2`) and repeat step 2.
+1. `suggest` → `conceptUri`
+2. `search({kind: "articles", conceptUri, count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates"})`; narrow with one boolean `keyword` string if the concept is broad
+3. Triage
+4. `get_article_details({articleUri: [...], includeFields: "sentiment"})`
+5. Report with the **findings** template
 
-### Step 4: Retrieve — get full details
-`get_article_details({articleUri: ["<uri1>", "<uri2>", "<uri3>", ...]})`
-Pass up to 100 URIs per call. If you have more than 100 relevant articles, batch them into multiple calls of 100 URIs each. Add `includeFields` only for data you need.
+## Happenings
 
-### Choosing the search kind
-- **kind: "articles"** → individual articles, full text, specific sources
-- **kind: "events"** → high-level overview, deduplicated event clusters, "what's happening with X"
+1. Pick the event type from the taxonomy in the shared reference (or `suggest({type: "eventTypes", prefix: "<taxonomy word>"})`), and `suggest({type: "concepts", prefix: "<entity>"})` if an entity is named
+2. `search({kind: "mentions", eventTypeUri, conceptUri, count: 50, factLevel: "fact"})`
+3. Each row already carries the article link: group the sentences by entity or date and report with the **findings** template; retrieve full articles only when the user wants detail
 
-The same pattern applies to events: scan with `search({kind: "events"})` → triage → `get_event_details` with selected URIs.
+## Numbers
 
-### When to simplify
-- Quick lookups (known URI): go directly to `get_article_details`
-- Topic page monitoring: use `get_topic_page_articles`
-- Simple questions needing few results: `search({kind: "articles", count: 10})` (skip triage)
+1. `suggest` → `conceptUri`
+2. One call per question: `search({kind: "articles", conceptUri, resultType: "timeAggr"})` (volume over time), `"sourceAggr"` (who covers it), `"conceptAggr"` (who is involved), `"locAggr"` (where), `"sentimentAggr"` (tone), `"langAggr"` (which languages)
+3. Present the numbers in a short table; add one article scan only when the user also wants examples
 
-## Citation Format
+## Research report
 
-**CRITICAL: Every factual claim MUST have an inline Markdown link to its source.** This is the single most important formatting rule. A report without clickable source links is incomplete.
+1. `suggest` → `conceptUri`
+2. `search({kind: "articles", conceptUri, resultType: "conceptAggr"})` to see the actors involved, then `"sourceAggr"` if source balance matters
+3. Scan as in the deep dive; add a boolean `keyword` when the topic needs narrowing, or a `query` (shared reference) when the question spans several topics or fields
+4. Triage for articles representing different viewpoints (industry, regulators, public, ...)
+5. `get_article_details({articleUri: [...], includeFields: "sentiment,concepts,categories"})`
+6. Report with the **research** template
 
-- Embed **inline Markdown links** after every factual claim: `[Reuters](URL)`
-- The URL comes from the article's `url` field in the tool response — never fabricate URLs
-- Reuse the same link when citing the same article multiple times
-- If the same source has multiple articles, disambiguate: `[Reuters 1](URL1)` `[Reuters 2](URL2)`
-- If a URL is missing, cite by title and source name without a link: *"Title" (Source Name)*
-- **No separate Sources section** — all attribution lives inline
-- **Self-check before presenting:** scan your output — if any factual sentence lacks a `[Source](URL)` link, add one before responding
-- **URL availability:** Article URLs come from `get_article_details` responses (the `url` field). For event-based patterns, you can also get article URLs directly from events: `get_event_details({eventUri: "<uri>", resultType: "articles", articlesCount: 10, articlesArticleBodyLen: 0})` returns articles (with URLs) for that event — no bodies needed, just URLs for inline citations. Note: `resultType: "articles"` only works with a single `eventUri`, not an array.
+## Breaking events
 
-## Report Structure
+1. `get_breaking_events({breakingEventsCount: 10, includeTopArticleUrl: true})` — the tool takes no topic filter; each event comes with its newest article's URL for citation
+2. Only when an event needs more than one source: `get_event_details({eventUri: "<uri>", resultType: "articles", articlesCount: 10})`
+3. Report with the **findings** template
 
-Every research report (except Quick Lookup) must follow this order:
+## Topic page
 
-1. **Summary** — 3-5 sentences with inline references covering the key findings
-2. **Detailed coverage** — subsections organized by theme, with inline references on every claim
-3. **Usage footer** — `**NewsAPI usage:** {N} requests | {T} tokens consumed`
+1. `get_topic_page_articles({uri: "<topic-page-uri>", articlesCount: 20, articleBodyLen: 200})` (or `get_topic_page_events`)
+2. Report with the **findings** template
 
-## Content Rules
+## Quick lookup
 
-- **Max one short quote (<15 words) per source article** — paraphrase everything else
-- **Synthesize across sources** — do not reconstruct or closely follow any single article's structure
-- Missing URL → cite by title and source name (no link)
+1. `suggest` → `conceptUri`
+2. `search({kind: "articles", conceptUri, count: 10, forceMaxDataTimeWindow: 7})`
+3. Answer in a few sentences with one or two inline `[Source](URL)` links taken from the result; no template, no usage footer
 
-## Decision Tree
+## Templates
 
-Classify the user's question, then follow the matching pattern:
+### Findings
 
 ```
-Question
-├─ "What's happening with X?" ─────────→ Event Overview
-├─ Needs full text / quotes ────────────→ Article Deep Dive
-├─ "How does Source A vs B cover X?" ───→ Source Comparison
-├─ "What's the sentiment around X?" ────→ Sentiment Analysis
-├─ Economic topic (GDP, inflation, ...) → Economic Report
-├─ Political topic (policy, elections) ─→ Political Report
-├─ Investment/market/company analysis ──→ Investing Report
-├─ Multi-angle research question ───────→ Research Report
-├─ Due diligence / adverse media / KYC ─→ Adverse Media Report
-├─ Company profile / entity intelligence → Company Intelligence Report
-├─ Supply chain / operational disruption → Supply Chain Risk Report
-├─ Country risk / geopolitical risk ─────→ Geopolitical Risk Report
-├─ Topic page URI provided ─────────────→ Topic Page
-└─ Quick factual / few results needed ──→ Quick Lookup
+# [Research question]
+Date / Scope
+
+## Summary
+## Detailed Coverage
+### [Theme 1]
+### [Theme 2]
 ```
 
-## Patterns
-
-### 1. Event Overview
-
-Use when the user wants a high-level summary of what's happening with a topic.
-
-1. `suggest({type: "concepts", prefix: "<topic>"})` — resolve URI
-2. `search({kind: "events", conceptUri: "<uri>", forceMaxDataTimeWindow: 31, count: 50, sortBy: "date"})` — scan events
-3. Triage — select relevant event URIs from titles/summaries
-4. `get_event_details({eventUri: ["<uri1>", "<uri2>", ...], includeFields: "concepts,categories"})` — retrieve details
-5. For each key event, fetch article URLs: `get_event_details({eventUri: "<uri>", resultType: "articles", articlesCount: 10, articlesArticleBodyLen: 0})` — returns articles with URLs directly, no need for `search` or `get_article_details`
-6. Use the article URLs from step 5 to provide inline citation links for each event's claims
-7. Present findings using the **findings template**
-
-### 2. Article Deep Dive
-
-Use when the user needs full article text, quotes, or detailed coverage.
-
-1. `suggest({type: "concepts", prefix: "<topic>"})` — resolve URI
-2. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates"})` — scan titles
-3. Triage — select relevant article URIs
-4. `get_article_details({articleUri: ["<uri1>", "<uri2>", ...], includeFields: "sentiment"})` — retrieve full text
-5. Present findings using the **findings template**
-
-### 3. Source Comparison
-
-Use when comparing how different outlets cover the same topic.
-
-1. `suggest({type: "concepts", prefix: "<topic>"})` — resolve topic URI
-2. `suggest({type: "sources", prefix: "<source A>"})` — resolve source A URI
-3. `suggest({type: "sources", prefix: "<source B>"})` — resolve source B URI
-4. `search({kind: "articles", conceptUri: "<topic-uri>", sourceUri: "<sourceA-uri>", count: 50, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates"})` — scan source A
-5. `search({kind: "articles", conceptUri: "<topic-uri>", sourceUri: "<sourceB-uri>", count: 50, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates"})` — scan source B
-6. Triage — pick representative articles from each source
-7. `get_article_details({articleUri: ["<a1>", "<a2>", "<b1>", "<b2>", ...], includeFields: "sentiment"})` — retrieve full text
-8. Present findings using the **source comparison template**
-
-### 4. Sentiment Analysis
-
-Use when analyzing tone/sentiment around a topic or entity.
-
-1. `suggest({type: "concepts", prefix: "<entity>"})` — resolve URI
-2. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", includeFields: "sentiment"})` — scan with sentiment
-3. Triage — group by positive (>0.3), negative (<-0.3), neutral
-4. `get_article_details({articleUri: ["<selected-uris>"], includeFields: "sentiment"})` — retrieve representative articles
-5. Present findings using the **sentiment template**
-
-### 5. Topic Page
-
-Use when the user provides a topic page URI or wants monitored topic updates.
-
-1. `get_topic_page_articles({uri: "<topic-page-uri>", articlesCount: 20, articleBodyLen: 200})` — get latest articles
-2. Present findings using the **findings template**
-
-### 6. Economic Report
-
-Use when the question is about economic indicators, macro trends, or sector/industry performance.
-
-1. `suggest({type: "concepts", prefix: "<economic topic>"})` — resolve URI (e.g., "inflation", "semiconductor industry")
-2. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", keyword: "GDP, inflation, unemployment, interest rate, recession, growth, forecast, central bank, trade deficit, earnings", keywordOper: "or"})` — scan with economic keywords. Translate keywords to match the language of the task.
-3. Triage — select articles covering economic data, policy decisions, sector trends
-4. `get_article_details({articleUri: ["<uri1>", "<uri2>", ...], includeFields: "concepts,categories"})` — retrieve full text
-5. Present findings using the **economic template**
-
-### 7. Political Report
-
-Use when the question involves policy, legislation, elections, or geopolitics.
-
-1. `suggest({type: "concepts", prefix: "<political topic>"})` — resolve URI
-2. `search({kind: "events", conceptUri: "<uri>", forceMaxDataTimeWindow: 31, count: 50, sortBy: "date"})` — scan events for political developments
-3. Triage — select relevant events
-4. `get_event_details({eventUri: ["<uri1>", "<uri2>", ...], includeFields: "concepts,categories"})` — retrieve details
-5. For each key event, fetch article URLs: `get_event_details({eventUri: "<uri>", resultType: "articles", articlesCount: 10, articlesArticleBodyLen: 0})` — returns articles with URLs directly for inline citations
-6. Optionally, for deeper coverage beyond events: `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", keyword: "legislation, regulation, policy, vote, amendment, coalition, campaign, reform, mandate, opposition", keywordOper: "or"})` — translate keywords to match the language of the task. Triage and `get_article_details` for selected URIs.
-7. Present findings using the **political template**
-
-### 8. Investing Report
-
-Use when the question is about a company, stock, market theme, or investment opportunity.
-
-1. `suggest({type: "concepts", prefix: "<company or asset>"})` — resolve URI
-2. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", keyword: "earnings, revenue, guidance, dividend, valuation, analyst, upgrade, downgrade, IPO, buyback", keywordOper: "or"})` — scan with investing keywords. Translate keywords to match the language of the task.
-3. Triage — select articles about earnings, catalysts, risks, market moves
-4. `get_article_details({articleUri: ["<uri1>", "<uri2>", ...], includeFields: "sentiment,concepts"})` — retrieve full text with sentiment
-5. Present findings using the **investing template**
-
-### 9. Research Report
-
-Use when the question requires multi-angle analysis across different stakeholder perspectives.
-
-1. `suggest({type: "concepts", prefix: "<topic>"})` — resolve URI
-2. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates"})` — scan titles. If the topic benefits from keyword narrowing, add `keyword` with relevant terms and `keywordOper: "or"`. Translate keywords to match the language of the task.
-3. Triage — select articles representing different viewpoints (industry, regulators, public, etc.)
-4. `get_article_details({articleUri: ["<uri1>", "<uri2>", ...], includeFields: "sentiment,concepts,categories"})` — retrieve full text
-5. Present findings using the **research template**
-
-### 10. Quick Lookup
-
-Use for simple factual questions needing few results. Skip the triage step.
-
-1. `suggest({type: "concepts", prefix: "<topic>"})` — resolve URI
-2. `search({kind: "articles", conceptUri: "<uri>", count: 10, forceMaxDataTimeWindow: 7})` — get recent articles directly
-3. Answer the question concisely, cite sources
-
-### 11. Adverse Media Report
-
-Use for due diligence, compliance screening, or reputation checks on a person or organization.
-
-1. `suggest({type: "concepts", prefix: "<entity>"})` — resolve primary entity URI
-2. Ask the user: "How deep should I search? I can search just the main entity, or also search associated people/subsidiaries. How many additional entities should I check, or should I use my judgment?"
-3. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", keyword: "fraud, lawsuit, sanction, fine, investigation, allegations, indictment, corruption, money laundering, bribery", keywordOper: "or"})` — scan with adverse keyword filter. Translate keywords to match the language of the task.
-4. Triage — select articles covering legal, regulatory, or reputational issues
-5. `get_article_details({articleUri: ["<uri1>", ...], includeFields: "concepts"})` — retrieve full text
-6. If user approved additional searches: `suggest` + `search({kind: "articles"})` for each associated entity (same keyword filter and language)
-7. Triage and retrieve additional entity results
-8. Present findings using the **adverse media template**
-
-### 12. Company Intelligence Report
-
-Use for broad company/entity profiling — corporate activity, strategy, competitive landscape, key people.
-
-1. `suggest({type: "concepts", prefix: "<company>"})` — resolve primary entity URI
-2. Ask the user: "How deep should I search? I can search just the company, or also search key executives/subsidiaries. How many additional entities should I check, or should I use my judgment?"
-3. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", keyword: "acquisition, merger, partnership, restructuring, earnings, revenue, CEO, strategy, expansion, launch", keywordOper: "or"})` — scan with corporate activity keywords. Translate keywords to match the language of the task.
-4. Triage — select articles covering corporate developments, strategy, leadership, competitive moves
-5. `search({kind: "events", conceptUri: "<uri>", count: 50, sortBy: "date", forceMaxDataTimeWindow: 31})` — scan recent events for major developments
-6. Triage — select relevant events
-7. `get_article_details({articleUri: ["<uri1>", ...], includeFields: "concepts,categories"})` — retrieve full article text
-8. `get_event_details({eventUri: ["<uri1>", ...], includeFields: "concepts,categories"})` — retrieve event details
-9. If user approved additional searches: `suggest` + `search({kind: "articles"})` for key people/subsidiaries (same language)
-10. Triage and retrieve additional entity results
-11. Present findings using the **company intelligence template**
-
-### 13. Supply Chain Risk Report
-
-Use for supply chain disruptions, operational risks, logistics bottlenecks, sourcing concerns.
-
-1. `suggest({type: "concepts", prefix: "<topic/entity/region>"})` — resolve primary URI
-2. Ask the user: "How deep should I search? I can search just the main topic, or also search specific suppliers, routes, or commodities involved. How many additional entities should I check, or should I use my judgment?"
-3. `search({kind: "articles", conceptUri: "<uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", keyword: "disruption, shortage, delay, shutdown, strike, tariff, embargo, recall, logistics, inventory", keywordOper: "or"})` — scan with supply chain risk keywords. Translate keywords to match the language of the task.
-4. Triage — select articles covering disruptions, operational issues, trade risks
-5. `search({kind: "events", conceptUri: "<uri>", count: 50, sortBy: "date", forceMaxDataTimeWindow: 31})` — scan recent events for active disruptions
-6. Triage — select relevant events
-7. `get_article_details({articleUri: ["<uri1>", ...], includeFields: "concepts,categories"})` — retrieve full article text
-8. `get_event_details({eventUri: ["<uri1>", ...], includeFields: "concepts,categories"})` — retrieve event details
-9. If user approved additional searches: `suggest` + `search({kind: "articles"})` for specific suppliers, commodities, or trade routes (same language)
-10. Triage and retrieve additional entity results
-11. Present findings using the **supply chain risk template**
-
-### 14. Geopolitical Risk Report
-
-Use for country/region risk assessments — political stability, security, economic environment, humanitarian factors.
-
-1. `suggest({type: "concepts", prefix: "<country/region>"})` — resolve primary concept URI
-2. `suggest({type: "locations", prefix: "<country/region>"})` — resolve location URI for geographic filtering
-3. Ask the user: "How deep should I search? I can search just the main country/region, or also search key actors, neighboring countries, or specific conflicts involved. How many additional entities should I check, or should I use my judgment?"
-4. `search({kind: "events", conceptUri: "<uri>", locationUri: "<loc-uri>", count: 50, sortBy: "date", forceMaxDataTimeWindow: 31})` — scan events for political/security developments
-5. Triage — select relevant events
-6. `search({kind: "articles", conceptUri: "<uri>", locationUri: "<loc-uri>", count: 100, articleBodyLen: 0, isDuplicateFilter: "skipDuplicates", keyword: "conflict, sanctions, coup, protest, election, crisis, diplomatic, military, refugee, instability", keywordOper: "or"})` — scan with geopolitical risk keywords and location filter. Translate keywords to match the language of the task.
-7. Triage — select articles covering stability, security, diplomacy, economic risks
-8. `get_event_details({eventUri: ["<uri1>", ...], includeFields: "concepts,categories"})` — retrieve event details
-9. `get_article_details({articleUri: ["<uri1>", ...], includeFields: "concepts,categories"})` — retrieve full article text
-10. If user approved additional searches: `suggest` + `search({kind: "articles"})` for key actors, neighboring countries, or specific conflicts (same language)
-11. Triage and retrieve additional entity results
-12. Present findings using the **geopolitical risk template**
-
-## Suggest Fallback Strategy
-
-If `suggest` returns no results:
-
-1. Try a **shorter prefix** (e.g., "Tesla" instead of "Tesla Inc.")
-2. Try **English** if you used another language
-3. Try a **broader concept** (e.g., "Olympic Games" instead of "2026 Winter Olympics")
-4. Fall back to **keyword search** as last resort
-
-For precision with broad concepts, combine: `conceptUri: "Olympic Games"` + `keyword: "2026"`
-
-## Findings Export
-
-Always format the final output using the appropriate template from `skill/templates/`. Use inline citations (see Citation Format above) — no separate Sources table. Every research session MUST end with the usage footer.
-
-### Template Selection
-
-| Pattern | Template |
-|---------|----------|
-| Event Overview | `findings.md` — summary + detailed coverage with inline citations |
-| Article Deep Dive | `findings.md` — summary + detailed coverage with inline citations |
-| Sentiment Analysis | `sentiment.md` — sentiment breakdown with inline citations |
-| Economic Report | `economic.md` — macro context + sector focus + outlook with inline citations |
-| Political Report | `political.md` — policy + dynamics + geopolitical context + stakeholder reactions |
-| Investing Report | `investing.md` — developments + risks + opportunities + catalysts & key dates |
-| Research Report | `research.md` — executive summary + key takeaways + multi-perspective analysis + limitations |
-| Topic Page | `findings.md` — summary + detailed coverage with inline citations |
-| Quick Lookup | No template (concise answer with inline citations) |
-| Adverse Media Report | `adverse-media.md` — adverse findings + associated entities + gaps |
-| Company Intelligence Report | `company-intel.md` — corporate activity + strategy + regulatory + key people |
-| Supply Chain Risk Report | `supply-chain.md` — disruptions + trade risks + mitigation + outlook |
-| Geopolitical Risk Report | `geopolitical.md` — stability + security + diplomacy + humanitarian + actors |
-
-### Usage Footer (mandatory)
-
-Every response except Quick Lookup must end with:
+### Research
 
 ```
-**NewsAPI usage:** {N} requests | {T} tokens consumed
+# Research Report: [Topic]
+Date / Scope / Research question
+
+## Executive Summary
+[Answer to the question; readers may stop here]
+## Key Takeaways
+- [Finding] ([Source](URL))
+## Perspectives
+### [Stakeholder A, e.g. industry]
+### [Stakeholder B, e.g. regulators]
+### [Stakeholder C, e.g. public]
+## Detailed Findings
+### [Theme]
+## Limitations
+[What coverage did not address, thin evidence, source bias]
 ```
-
-Count every tool call as a request. Read the exact "Tokens used" number from each response footer — do not estimate. Suggest calls cost 0 tokens but still count as requests.
-
-## Token Budget Awareness
-
-Approximate token costs per action:
-
-| Action | Tokens |
-|--------|--------|
-| suggest | 0 (free) |
-| search articles (scan, bodyLen: 0) | 1-2 |
-| search articles (with body) | 5-10 |
-| search events | 1-2 |
-| get_article_details (per batch) | 5-15 |
-| get_event_details (per batch) | 2-5 |
-| get_topic_page_articles | 1-5 |
-
-A typical Event Overview costs ~5-10 tokens. A full Article Deep Dive costs ~10-20 tokens. Plan accordingly if the user has limited quota.
