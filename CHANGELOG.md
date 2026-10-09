@@ -25,6 +25,7 @@
 
 ### Improvements
 
+- **Claude Code plugin** — The repository installs as a plugin (`claude plugin marketplace add EventRegistry/newsapi-mcp`, then `claude plugin install newsapi@newsapi-mcp`) that bundles the hosted MCP server and the `/news` skill, which moved from `skill/` to `skills/news/`; `npm version` keeps the plugin version in step with the package
 - **Compact scan rows** — With `articleBodyLen: 0` each article is one row (`# | uri | date | source | title`); `get_article_details` supplies the text and URL. Notes under the result report applied defaults and body truncation
 - **Publish time in rows** — Article, scan, detail and mention rows show `YYYY-MM-DD HH:MM` instead of the day alone, and date-sorted article pages are re-sorted by publish time (the API orders by crawl time). Events keep their day-only date
 - **Smaller schema and instructions** — Shared parameter and tool descriptions were shortened and the guidance moved into the server instructions; the shared filters and query grammar load once for the single `search` tool, cutting the session-start cost from about 15.8k to about 10.5k tokens

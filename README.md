@@ -260,18 +260,30 @@ Pull articles or events from saved [Topic Pages](https://newsapi.ai) on NewsAPI.
 | `get_topic_page_events` | Get events from a pre-configured topic page on NewsAPI.ai. |
 | `get_api_usage` | Check token usage and plan details for the current API key. |
 
-## News Research Skill
+## Claude Code plugin
 
-The `skill/` directory contains a `/news` slash command for [Claude Code](https://code.claude.com/docs/en/skills)
+The repository is a Claude Code plugin: it bundles the hosted MCP server and the
+`/news` research skill, so one install gives Claude Code both.
+
+```bash
+claude plugin marketplace add EventRegistry/newsapi-mcp
+claude plugin install newsapi@newsapi-mcp
+```
+
+Ask a news question or run `/news "What's happening with AI regulation?"`; Claude Code
+prompts you to log in with your Event Registry account the first time (or run `/mcp`
+to log in up front). The plugin's tools are named `mcp__plugin_newsapi_newsapi__<tool>`
+in permission rules.
+
+### News research skill
+
+The `skills/news/` directory holds the `/news` skill for [Claude Code](https://code.claude.com/docs/en/skills)
 (CLI and Desktop) that orchestrates multi-step research workflows on top of the MCP tools.
 It automates the suggest → scan → triage → retrieve pattern and formats findings into structured reports.
 
-```
-/news "What's happening with AI regulation?"
-```
-
-To install, copy the `skill/` directory into your project's `.claude/skills/` directory. See the
-[skills documentation](https://code.claude.com/docs/en/skills) for details.
+To use the skill without the plugin, copy `skills/news/` into your project's `.claude/skills/`
+directory and change its `allowed-tools` to the names of your own MCP server (for a server
+added as `newsapi`, `mcp__newsapi__<tool>`).
 
 ## Links
 
